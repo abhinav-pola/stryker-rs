@@ -278,7 +278,11 @@ fn runner_factory(
     let root = root.to_owned();
     let temp_dir = temp_dir.to_owned();
     let bun_factory = {
-        let root = root.clone();
+        let bun_cwd = match &config.bun_runner.cwd {
+            Some(rel) => root.join(rel),
+            None => root.clone(),
+        };
+        let path_prefix = config.bun_runner.cwd.clone().unwrap_or_default();
         let temp_dir = temp_dir.clone();
         let args = config.bun_runner.args.clone();
         let test_files = config.bun_runner.test_files.clone();
@@ -286,7 +290,8 @@ fn runner_factory(
             config.bun_runner.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         move || {
             stryker_runners::bun::BunRunner::new(
-                root.clone(),
+                bun_cwd.clone(),
+                path_prefix.clone(),
                 temp_dir.clone(),
                 args.clone(),
                 test_files.clone(),

@@ -46,6 +46,10 @@ struct Handoff {
 
 pub struct BunRunner {
     cwd: Utf8PathBuf,
+    /// Project-root-relative prefix of `cwd` ("" when they coincide); test
+    /// ids and file paths in results are prefixed so the report stays
+    /// root-relative, while args passed to bun stay cwd-relative.
+    path_prefix: String,
     temp_dir: Utf8PathBuf,
     /// Extra `bun test` args from config.
     extra_args: Vec<String>,
@@ -62,6 +66,7 @@ pub struct BunRunner {
 impl BunRunner {
     pub fn new(
         cwd: Utf8PathBuf,
+        path_prefix: String,
         temp_dir: Utf8PathBuf,
         extra_args: Vec<String>,
         test_files: Vec<String>,
@@ -70,8 +75,14 @@ impl BunRunner {
         static NEXT_WORKER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let worker_id = NEXT_WORKER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let preload_path = temp_dir.join("stryker-preload.ts");
+        let path_prefix = if path_prefix.is_empty() || path_prefix.ends_with('/') {
+            path_prefix
+        } else {
+            format!("{path_prefix}/")
+        };
         Self {
             cwd,
+            path_prefix,
             temp_dir,
             extra_args,
             test_files,
@@ -80,6 +91,10 @@ impl BunRunner {
             run_counter: 0,
             preload_path,
         }
+    }
+
+    fn prefixed_id(&self, case: &crate::junit::JunitCase) -> String {
+        format!("{}{}", self.path_prefix, case.test_id())
     }
 
     fn artifact(&mut self, kind: &str) -> Utf8PathBuf {
@@ -149,9 +164,9 @@ impl TestRunner for BunRunner {
         let tests: Vec<TestResult> = executed
             .iter()
             .map(|c| TestResult {
-                id: c.test_id(),
-                name: c.test_id(),
-                file: c.file.clone().map(Utf8PathBuf::from),
+                id: self.prefixed_id(c),
+                name: self.prefixed_id(c),
+                file: c.file.clone().map(|f| Utf8PathBuf::from(format!("{}{f}", self.path_prefix))),
                 time_ms: c.time_ms,
                 failed: c.failed,
                 failure: c.failed.then(|| output.diagnostic_tail()),
@@ -183,7 +198,7 @@ impl TestRunner for BunRunner {
                 let Ok(index) = ordinal.parse::<usize>() else { continue };
                 let Some(case) = executed.get(index) else { continue };
                 let entry: &mut HashMap<u32, u64> =
-                    coverage.per_test.entry(case.test_id()).or_default();
+                    coverage.per_test.entry(self.prefixed_id(case)).or_default();
                 for (id, hits) in buckets {
                     if let Ok(id) = id.parse::<u32>() {
                         entry.insert(id, *hits);
@@ -213,7 +228,7 @@ impl TestRunner for BunRunner {
 
         match &options.test_filter {
             Some(filter) => {
-                let files = covering_files(filter);
+                let files = covering_files(filter, &self.path_prefix);
                 if files.is_empty() {
                     // Test ids without a file part; fall back to full run.
                     cmd.args(&self.test_files);
@@ -270,7 +285,7 @@ impl TestRunner for BunRunner {
         let executed: Vec<&crate::junit::JunitCase> =
             cases.iter().filter(|c| !c.skipped).collect();
         let killed_by: Vec<TestId> =
-            executed.iter().filter(|c| c.failed).map(|c| c.test_id()).collect();
+            executed.iter().filter(|c| c.failed).map(|c| self.prefixed_id(c)).collect();
 
         if killed_by.is_empty() {
             if !output.success() {
@@ -305,12 +320,14 @@ fn cleanup(paths: &[&Utf8Path]) {
     }
 }
 
-/// Distinct file parts of `<file> > ... > <name>` test ids, order-preserving.
-fn covering_files(filter: &[TestId]) -> Vec<String> {
+/// Distinct file parts of `<file> > ... > <name>` test ids, order-preserving,
+/// converted back to bun-cwd-relative paths (ids are project-root-relative).
+fn covering_files(filter: &[TestId], path_prefix: &str) -> Vec<String> {
     let mut seen = std::collections::BTreeSet::new();
     let mut files = Vec::new();
     for id in filter {
         let Some((file, _)) = id.split_once(" > ") else { continue };
+        let file = file.strip_prefix(path_prefix).unwrap_or(file);
         if seen.insert(file.to_string()) {
             files.push(file.to_string());
         }
@@ -361,7 +378,13 @@ mod tests {
             "src/a.test.ts > suite > y".to_string(),
             "src/b.test.ts > z".to_string(),
         ];
-        assert_eq!(covering_files(&filter), vec!["src/a.test.ts", "src/b.test.ts"]);
+        assert_eq!(covering_files(&filter, ""), vec!["src/a.test.ts", "src/b.test.ts"]);
+    }
+
+    #[test]
+    fn covering_files_strips_cwd_prefix() {
+        let filter = vec!["packages/core/src/a.test.ts > x".to_string()];
+        assert_eq!(covering_files(&filter, "packages/core/"), vec!["src/a.test.ts"]);
     }
 
     #[test]

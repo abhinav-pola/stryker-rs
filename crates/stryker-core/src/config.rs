@@ -69,6 +69,10 @@ pub struct BunRunnerConfig {
     /// Extra environment for every `bun test` invocation
     /// (e.g. RTL_SKIP_AUTO_CLEANUP for dom tests).
     pub env: std::collections::BTreeMap<String, String>,
+    /// Directory (relative to the project root) to run `bun test` from.
+    /// Monorepo packages need their own bunfig.toml preloads; report paths
+    /// and test ids stay project-root-relative.
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
