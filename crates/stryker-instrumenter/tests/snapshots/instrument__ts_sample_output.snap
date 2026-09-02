@@ -1,0 +1,64 @@
+---
+source: crates/stryker-instrumenter/tests/instrument.rs
+expression: result.instrumented.as_deref().unwrap()
+---
+/* stryker-rs instrumentation header */
+function stryNS_9fa48() {
+  var g = typeof globalThis === "object" && globalThis || typeof global === "object" && global || this;
+  var ns = g.__stryker__ || (g.__stryker__ = {});
+  var env = typeof process === "object" && process && process.env || {};
+  if (ns.activeMutant === undefined && env.__STRYKER_ACTIVE_MUTANT__) {
+    ns.activeMutant = env.__STRYKER_ACTIVE_MUTANT__;
+  }
+  if (ns.hitLimit === undefined && env.__STRYKER_HIT_LIMIT__) {
+    ns.hitLimit = parseInt(env.__STRYKER_HIT_LIMIT__, 10);
+    ns.hitCount = 0;
+  }
+  function retrieveNS() { return ns; }
+  stryNS_9fa48 = retrieveNS;
+  return retrieveNS();
+}
+stryNS_9fa48();
+function stryCov_9fa48() {
+  var ns = stryNS_9fa48();
+  var cov = ns.mutantCoverage || (ns.mutantCoverage = { static: {}, perTest: {} });
+  function cover() {
+    var c = cov.static;
+    if (ns.currentTestId !== undefined) {
+      c = cov.perTest[ns.currentTestId] = cov.perTest[ns.currentTestId] || {};
+    }
+    var a = arguments;
+    for (var i = 0; i < a.length; i++) {
+      c[a[i]] = (c[a[i]] || 0) + 1;
+    }
+  }
+  stryCov_9fa48 = cover;
+  cover.apply(null, arguments);
+}
+function stryMutAct_9fa48(id) {
+  var ns = stryNS_9fa48();
+  function isActive(id) {
+    if (ns.activeMutant === id) {
+      if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) {
+        throw new Error("Stryker: Hit limit reached (" + ns.hitCount + ")");
+      }
+      return true;
+    }
+    return false;
+  }
+  stryMutAct_9fa48 = isActive;
+  return isActive(id);
+}
+export function classify(n: number, opts?: { strict?: boolean }): string { if (stryMutAct_9fa48("0")) {} else { stryCov_9fa48("0"); 
+  const strict = (stryMutAct_9fa48("2") ? opts?.strict && false : (stryCov_9fa48("2"), (stryMutAct_9fa48("1") ? opts.strict : (stryCov_9fa48("1"), opts?.strict)) ?? (stryMutAct_9fa48("3") ? true : (stryCov_9fa48("3"), false))));
+  if ((stryMutAct_9fa48("7") ? true : stryMutAct_9fa48("8") ? false : stryMutAct_9fa48("9") ? n < 0 || strict : (stryCov_9fa48("7", "8", "9"), (stryMutAct_9fa48("4") ? true : stryMutAct_9fa48("5") ? n <= 0 : stryMutAct_9fa48("6") ? n >= 0 : (stryCov_9fa48("4", "5", "6"), n < 0)) && strict))) { if (stryMutAct_9fa48("10")) {} else { stryCov_9fa48("10"); 
+    return (stryMutAct_9fa48("11") ? "" : (stryCov_9fa48("11"), "negative"));
+   } }
+  let total = 0;
+  for (let i = 0; (stryMutAct_9fa48("12") ? false : stryMutAct_9fa48("13") ? i <= n : stryMutAct_9fa48("14") ? i >= n : (stryCov_9fa48("12", "13", "14"), i < n)); (stryMutAct_9fa48("15") ? i-- : (stryCov_9fa48("15"), i++))) { if (stryMutAct_9fa48("16")) {} else { stryCov_9fa48("16"); 
+    (stryMutAct_9fa48("17") ? total -= i : (stryCov_9fa48("17"), total += i));
+   } }
+  const labels = (stryMutAct_9fa48("18") ? ["a", "b"] : stryMutAct_9fa48("19") ? [].filter((l) => l !== "b") : stryMutAct_9fa48("20") ? ["", "b"].filter((l) => l !== "b") : stryMutAct_9fa48("21") ? ["a", ""].filter((l) => l !== "b") : (stryCov_9fa48("18", "19", "20", "21"), ["a", "b"].filter((stryMutAct_9fa48("22") ? () => undefined : (stryCov_9fa48("22"), (l) => (stryMutAct_9fa48("23") ? l === "b" : stryMutAct_9fa48("24") ? true : stryMutAct_9fa48("25") ? false : (stryCov_9fa48("23", "24", "25"), l !== (stryMutAct_9fa48("26") ? "" : (stryCov_9fa48("26"), "b")))))))));
+  const isBig = (stryMutAct_9fa48("27") ? total >= 10 : stryMutAct_9fa48("28") ? total <= 10 : stryMutAct_9fa48("29") ? true : stryMutAct_9fa48("30") ? false : (stryCov_9fa48("27", "28", "29", "30"), total > 10)) ? (stryMutAct_9fa48("31") ? false : (stryCov_9fa48("31"), true)) : (stryMutAct_9fa48("32") ? strict : (stryCov_9fa48("32"), !strict));
+  return (stryMutAct_9fa48("33") ? labels.every((l) => l.startsWith("a")) : (stryCov_9fa48("33"), labels.some((stryMutAct_9fa48("34") ? () => undefined : (stryCov_9fa48("34"), (l) => (stryMutAct_9fa48("35") ? l.endsWith("a") : (stryCov_9fa48("35"), l.startsWith((stryMutAct_9fa48("36") ? "" : (stryCov_9fa48("36"), "a")))))))))) ? (stryMutAct_9fa48("37") ? `` : (stryCov_9fa48("37"), `big:${isBig}`)) : (stryMutAct_9fa48("38") ? "" : (stryCov_9fa48("38"), "small"));
+ } }

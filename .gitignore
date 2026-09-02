@@ -1,0 +1,7 @@
+/target
+node_modules/
+.DS_Store
+*.snap.new
+fixtures/*/reports/
+fixtures/*/.stryker-tmp*/
+dist-npm/

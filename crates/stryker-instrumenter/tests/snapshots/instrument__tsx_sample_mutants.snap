@@ -1,0 +1,20 @@
+---
+source: crates/stryker-instrumenter/tests/instrument.rs
+expression: mutant_lines(&result)
+---
+100 BlockStatement         src/Badge.tsx:1:76  {\n  const text = label ?? "items";\n  return (\n    <span className={count > 0 ? "full" : "empty"}>\n      {count > 0 && <strong>{count}</strong>} {text.toUpperCase()}\n    </span>\n  );\n} -> {}
+101 LogicalOperator        src/Badge.tsx:2:16  label ?? "items" -> label && "items"
+102 StringLiteral          src/Badge.tsx:2:25  "items" -> ""
+103 EqualityOperator       src/Badge.tsx:4:22  count > 0 -> count >= 0
+104 EqualityOperator       src/Badge.tsx:4:22  count > 0 -> count <= 0
+105 ConditionalExpression  src/Badge.tsx:4:22  count > 0 -> true
+106 ConditionalExpression  src/Badge.tsx:4:22  count > 0 -> false
+107 StringLiteral          src/Badge.tsx:4:34  "full" -> ""
+108 StringLiteral          src/Badge.tsx:4:43  "empty" -> ""
+109 ConditionalExpression  src/Badge.tsx:5:8  count > 0 -> true
+110 EqualityOperator       src/Badge.tsx:5:8  count > 0 -> count >= 0
+111 EqualityOperator       src/Badge.tsx:5:8  count > 0 -> count <= 0
+112 LogicalOperator        src/Badge.tsx:5:8  count > 0 && <strong>{count}</strong> -> count > 0 || <strong>{count}</strong>
+113 ConditionalExpression  src/Badge.tsx:5:8  count > 0 && <strong>{count}</strong> -> true
+114 ConditionalExpression  src/Badge.tsx:5:8  count > 0 && <strong>{count}</strong> -> false
+115 MethodExpression       src/Badge.tsx:5:48  text.toUpperCase() -> text.toLowerCase()

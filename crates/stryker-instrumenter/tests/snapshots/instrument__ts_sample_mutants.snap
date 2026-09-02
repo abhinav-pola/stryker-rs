@@ -1,0 +1,43 @@
+---
+source: crates/stryker-instrumenter/tests/instrument.rs
+expression: mutant_lines(&result)
+---
+  0 BlockStatement         src/classify.ts:1:74  {\n  const strict = opts?.strict ?? false;\n  if (n < 0 && strict) {\n    return "negative";\n  }\n  let total = 0;\n  for (let i = 0; i < n; i++) {\n    total += i;\n  }\n  const labels = ["a", "b"].filter((l) => l !== "b");\n  const isBig = total > 10 ? true : !strict;\n  return labels.some((l) => l.startsWith("a")) ? `big:${isBig}` : "small";\n} -> {}
+  1 OptionalChaining       src/classify.ts:2:18  opts?.strict -> opts.strict
+  2 LogicalOperator        src/classify.ts:2:18  opts?.strict ?? false -> opts?.strict && false
+  3 BooleanLiteral         src/classify.ts:2:34  false -> true
+  4 ConditionalExpression  src/classify.ts:3:7  n < 0 -> true
+  5 EqualityOperator       src/classify.ts:3:7  n < 0 -> n <= 0
+  6 EqualityOperator       src/classify.ts:3:7  n < 0 -> n >= 0
+  7 ConditionalExpression  src/classify.ts:3:7  n < 0 && strict -> true
+  8 ConditionalExpression  src/classify.ts:3:7  n < 0 && strict -> false
+  9 LogicalOperator        src/classify.ts:3:7  n < 0 && strict -> n < 0 || strict
+ 10 BlockStatement         src/classify.ts:3:24  {\n    return "negative";\n  } -> {}
+ 11 StringLiteral          src/classify.ts:4:12  "negative" -> ""
+ 12 ConditionalExpression  src/classify.ts:7:19  i < n -> false
+ 13 EqualityOperator       src/classify.ts:7:19  i < n -> i <= n
+ 14 EqualityOperator       src/classify.ts:7:19  i < n -> i >= n
+ 15 UpdateOperator         src/classify.ts:7:26  i++ -> i--
+ 16 BlockStatement         src/classify.ts:7:31  {\n    total += i;\n  } -> {}
+ 17 AssignmentOperator     src/classify.ts:8:5  total += i -> total -= i
+ 18 MethodExpression       src/classify.ts:10:18  ["a", "b"].filter((l) => l !== "b") -> ["a", "b"]
+ 19 ArrayDeclaration       src/classify.ts:10:18  ["a", "b"] -> []
+ 20 StringLiteral          src/classify.ts:10:19  "a" -> ""
+ 21 StringLiteral          src/classify.ts:10:24  "b" -> ""
+ 22 ArrowFunction          src/classify.ts:10:36  (l) => l !== "b" -> () => undefined
+ 23 EqualityOperator       src/classify.ts:10:43  l !== "b" -> l === "b"
+ 24 ConditionalExpression  src/classify.ts:10:43  l !== "b" -> true
+ 25 ConditionalExpression  src/classify.ts:10:43  l !== "b" -> false
+ 26 StringLiteral          src/classify.ts:10:49  "b" -> ""
+ 27 EqualityOperator       src/classify.ts:11:17  total > 10 -> total >= 10
+ 28 EqualityOperator       src/classify.ts:11:17  total > 10 -> total <= 10
+ 29 ConditionalExpression  src/classify.ts:11:17  total > 10 -> true
+ 30 ConditionalExpression  src/classify.ts:11:17  total > 10 -> false
+ 31 BooleanLiteral         src/classify.ts:11:30  true -> false
+ 32 BooleanLiteral         src/classify.ts:11:37  !strict -> strict
+ 33 MethodExpression       src/classify.ts:12:10  labels.some((l) => l.startsWith("a")) -> labels.every((l) => l.startsWith("a"))
+ 34 ArrowFunction          src/classify.ts:12:22  (l) => l.startsWith("a") -> () => undefined
+ 35 MethodExpression       src/classify.ts:12:29  l.startsWith("a") -> l.endsWith("a")
+ 36 StringLiteral          src/classify.ts:12:42  "a" -> ""
+ 37 StringLiteral          src/classify.ts:12:50  `big:${isBig}` -> ``
+ 38 StringLiteral          src/classify.ts:12:67  "small" -> ""

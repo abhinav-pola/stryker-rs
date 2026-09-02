@@ -1,0 +1,13 @@
+{
+  "testRunner": "command",
+  "commandRunner": { "command": "bun test src" },
+  "coverageAnalysis": "off",
+  "mutate": ["src/**/*.ts", "app/[(]group[)]/**/*.ts"],
+  "ignorePatterns": ["node_modules"],
+  "concurrency": 2,
+  "timeoutMS": 5000,
+  "inPlace": true,
+  "reporters": ["clear-text", "json"],
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "cleanTempDir": true
+}

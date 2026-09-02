@@ -1,0 +1,12 @@
+{
+  "testRunner": "vitest",
+  "coverageAnalysis": "perTest",
+  "mutate": ["src/**/*.ts"],
+  "ignorePatterns": ["node_modules"],
+  "concurrency": 1,
+  "timeoutMS": 10000,
+  "inPlace": true,
+  "reporters": ["clear-text", "json"],
+  "jsonReporter": { "fileName": "reports/mutation/vitest.json" },
+  "cleanTempDir": true
+}

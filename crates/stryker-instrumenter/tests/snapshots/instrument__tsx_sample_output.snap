@@ -1,0 +1,59 @@
+---
+source: crates/stryker-instrumenter/tests/instrument.rs
+expression: result.instrumented.as_deref().unwrap()
+---
+/* stryker-rs instrumentation header */
+function stryNS_9fa48() {
+  var g = typeof globalThis === "object" && globalThis || typeof global === "object" && global || this;
+  var ns = g.__stryker__ || (g.__stryker__ = {});
+  var env = typeof process === "object" && process && process.env || {};
+  if (ns.activeMutant === undefined && env.__STRYKER_ACTIVE_MUTANT__) {
+    ns.activeMutant = env.__STRYKER_ACTIVE_MUTANT__;
+  }
+  if (ns.hitLimit === undefined && env.__STRYKER_HIT_LIMIT__) {
+    ns.hitLimit = parseInt(env.__STRYKER_HIT_LIMIT__, 10);
+    ns.hitCount = 0;
+  }
+  function retrieveNS() { return ns; }
+  stryNS_9fa48 = retrieveNS;
+  return retrieveNS();
+}
+stryNS_9fa48();
+function stryCov_9fa48() {
+  var ns = stryNS_9fa48();
+  var cov = ns.mutantCoverage || (ns.mutantCoverage = { static: {}, perTest: {} });
+  function cover() {
+    var c = cov.static;
+    if (ns.currentTestId !== undefined) {
+      c = cov.perTest[ns.currentTestId] = cov.perTest[ns.currentTestId] || {};
+    }
+    var a = arguments;
+    for (var i = 0; i < a.length; i++) {
+      c[a[i]] = (c[a[i]] || 0) + 1;
+    }
+  }
+  stryCov_9fa48 = cover;
+  cover.apply(null, arguments);
+}
+function stryMutAct_9fa48(id) {
+  var ns = stryNS_9fa48();
+  function isActive(id) {
+    if (ns.activeMutant === id) {
+      if (ns.hitCount !== undefined && ++ns.hitCount > ns.hitLimit) {
+        throw new Error("Stryker: Hit limit reached (" + ns.hitCount + ")");
+      }
+      return true;
+    }
+    return false;
+  }
+  stryMutAct_9fa48 = isActive;
+  return isActive(id);
+}
+export function Badge({ count, label }: { count: number; label?: string }) { if (stryMutAct_9fa48("100")) {} else { stryCov_9fa48("100"); 
+  const text = (stryMutAct_9fa48("101") ? label && "items" : (stryCov_9fa48("101"), label ?? (stryMutAct_9fa48("102") ? "" : (stryCov_9fa48("102"), "items"))));
+  return (
+    <span className={(stryMutAct_9fa48("103") ? count >= 0 : stryMutAct_9fa48("104") ? count <= 0 : stryMutAct_9fa48("105") ? true : stryMutAct_9fa48("106") ? false : (stryCov_9fa48("103", "104", "105", "106"), count > 0)) ? (stryMutAct_9fa48("107") ? "" : (stryCov_9fa48("107"), "full")) : (stryMutAct_9fa48("108") ? "" : (stryCov_9fa48("108"), "empty"))}>
+      {(stryMutAct_9fa48("112") ? count > 0 || <strong>{count}</strong> : stryMutAct_9fa48("113") ? true : stryMutAct_9fa48("114") ? false : (stryCov_9fa48("112", "113", "114"), (stryMutAct_9fa48("109") ? true : stryMutAct_9fa48("110") ? count >= 0 : stryMutAct_9fa48("111") ? count <= 0 : (stryCov_9fa48("109", "110", "111"), count > 0)) && <strong>{count}</strong>))} {(stryMutAct_9fa48("115") ? text.toLowerCase() : (stryCov_9fa48("115"), text.toUpperCase()))}
+    </span>
+  );
+ } }

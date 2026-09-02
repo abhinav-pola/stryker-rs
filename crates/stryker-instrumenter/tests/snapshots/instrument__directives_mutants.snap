@@ -1,0 +1,15 @@
+---
+source: crates/stryker-instrumenter/tests/instrument.rs
+expression: mutant_lines(&result)
+---
+  0 BlockStatement         src/f.ts:1:41  {\n  // Stryker disable next-line EqualityOperator: intentional\n  const x = a === b;\n  const y = a < b;\n  return x || y;\n} -> {}  [ignored: Ignored because BlockStatement is excluded (mutator.excludedMutations)]
+  1 EqualityOperator       src/f.ts:3:13  a === b -> a !== b  [ignored: intentional]
+  2 ConditionalExpression  src/f.ts:3:13  a === b -> true
+  3 ConditionalExpression  src/f.ts:3:13  a === b -> false
+  4 EqualityOperator       src/f.ts:4:13  a < b -> a <= b
+  5 EqualityOperator       src/f.ts:4:13  a < b -> a >= b
+  6 ConditionalExpression  src/f.ts:4:13  a < b -> true
+  7 ConditionalExpression  src/f.ts:4:13  a < b -> false
+  8 LogicalOperator        src/f.ts:5:10  x || y -> x && y
+  9 ConditionalExpression  src/f.ts:5:10  x || y -> true
+ 10 ConditionalExpression  src/f.ts:5:10  x || y -> false

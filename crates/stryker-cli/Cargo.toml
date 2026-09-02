@@ -1,0 +1,34 @@
+[package]
+name = "stryker-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "stryker"
+path = "src/main.rs"
+
+[dependencies]
+stryker-core.workspace = true
+stryker-instrumenter.workspace = true
+stryker-runners.workspace = true
+stryker-reporters.workspace = true
+stryker-incremental.workspace = true
+
+anyhow.workspace = true
+camino.workspace = true
+clap.workspace = true
+indicatif.workspace = true
+miette.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+insta.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

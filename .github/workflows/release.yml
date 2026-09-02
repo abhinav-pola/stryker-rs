@@ -1,0 +1,75 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            triple: aarch64-apple-darwin
+            zigbuild: false
+          - runner: macos-13
+            triple: x86_64-apple-darwin
+            zigbuild: false
+          - runner: ubuntu-24.04
+            triple: x86_64-unknown-linux-gnu
+            zigbuild: true
+          - runner: ubuntu-24.04
+            triple: aarch64-unknown-linux-gnu
+            zigbuild: true
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: rustup toolchain install stable --profile minimal && rustup target add ${{ matrix.triple }}
+      - if: matrix.zigbuild
+        uses: mlugg/setup-zig@a67e68dc5c8281d9608136d3d7ca1b282213e4ac # v1.2.1
+      - if: matrix.zigbuild
+        run: cargo install cargo-zigbuild --locked
+      - name: Build
+        run: |
+          if [ "${{ matrix.zigbuild }}" = "true" ]; then
+            cargo zigbuild --release --target ${{ matrix.triple }}.2.17 -p stryker-cli
+          else
+            cargo build --release --target ${{ matrix.triple }} -p stryker-cli
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: stryker-${{ matrix.triple }}
+          path: target/${{ matrix.triple }}/release/stryker
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
+      - name: Arrange binaries
+        run: |
+          for triple in aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            mkdir -p "target/$triple/release"
+            cp "artifacts/stryker-$triple/stryker" "target/$triple/release/stryker"
+          done
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Package
+        run: node scripts/package-npm.mjs "${GITHUB_REF_NAME#v}"
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in dist-npm/cli-*; do
+            (cd "$dir" && npm publish --access public)
+          done
+          (cd dist-npm/stryker-rs && npm publish --access public)

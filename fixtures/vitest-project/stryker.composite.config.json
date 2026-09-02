@@ -1,0 +1,13 @@
+{
+  "testRunner": "composite",
+  "bunRunner": { "testFiles": ["src/shared.bun.test.ts"] },
+  "coverageAnalysis": "perTest",
+  "mutate": ["src/shared.ts"],
+  "ignorePatterns": ["node_modules"],
+  "concurrency": 1,
+  "timeoutMS": 15000,
+  "inPlace": true,
+  "reporters": ["clear-text", "json"],
+  "jsonReporter": { "fileName": "reports/mutation/composite.json" },
+  "cleanTempDir": true
+}
