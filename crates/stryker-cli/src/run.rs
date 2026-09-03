@@ -510,12 +510,17 @@ fn runner_factory(
         }
     };
     let vitest_factory = {
-        let root = root.clone();
+        let vitest_cwd = match &config.vitest_runner.cwd {
+            Some(rel) => root.join(rel),
+            None => root.clone(),
+        };
+        let path_prefix = config.vitest_runner.cwd.clone().unwrap_or_default();
         let temp_dir = temp_dir.clone();
         let config_file = config.vitest_runner.config_file.clone();
         move || {
             stryker_runners::vitest::VitestRunner::new(
-                root.clone(),
+                vitest_cwd.clone(),
+                path_prefix.clone(),
                 temp_dir.clone(),
                 config_file.clone(),
             )

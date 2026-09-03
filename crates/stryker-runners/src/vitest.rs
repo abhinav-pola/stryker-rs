@@ -65,6 +65,10 @@ enum ShimReply {
 
 pub struct VitestRunner {
     cwd: Utf8PathBuf,
+    /// Project-root-relative prefix of `cwd` ("" when they coincide); test
+    /// ids from the shim are cwd-relative and get prefixed on the way out,
+    /// filters get de-prefixed on the way in.
+    path_prefix: String,
     temp_dir: Utf8PathBuf,
     config_file: Option<String>,
     child: Option<Child>,
@@ -74,8 +78,31 @@ pub struct VitestRunner {
 }
 
 impl VitestRunner {
-    pub fn new(cwd: Utf8PathBuf, temp_dir: Utf8PathBuf, config_file: Option<String>) -> Self {
-        Self { cwd, temp_dir, config_file, child: None, stdin: None, stdout: None, next_id: 0 }
+    pub fn new(
+        cwd: Utf8PathBuf,
+        path_prefix: String,
+        temp_dir: Utf8PathBuf,
+        config_file: Option<String>,
+    ) -> Self {
+        let path_prefix = if path_prefix.is_empty() || path_prefix.ends_with('/') {
+            path_prefix
+        } else {
+            format!("{path_prefix}/")
+        };
+        Self {
+            cwd,
+            path_prefix,
+            temp_dir,
+            config_file,
+            child: None,
+            stdin: None,
+            stdout: None,
+            next_id: 0,
+        }
+    }
+
+    fn prefix(&self, id: &str) -> String {
+        format!("{}{id}", self.path_prefix)
     }
 
     async fn spawn_shim(&mut self) -> anyhow::Result<()> {
@@ -177,7 +204,7 @@ impl VitestRunner {
     }
 }
 
-fn convert_coverage(shim: ShimCoverage) -> MutantCoverage {
+fn convert_coverage(shim: ShimCoverage, path_prefix: &str) -> MutantCoverage {
     let mut coverage = MutantCoverage::default();
     for (id, hits) in shim.static_hits {
         if let Ok(id) = id.parse::<u32>() {
@@ -185,7 +212,7 @@ fn convert_coverage(shim: ShimCoverage) -> MutantCoverage {
         }
     }
     for (test, buckets) in shim.per_test {
-        let entry = coverage.per_test.entry(test).or_default();
+        let entry = coverage.per_test.entry(format!("{path_prefix}{test}")).or_default();
         for (id, hits) in buckets {
             if let Ok(id) = id.parse::<u32>() {
                 entry.insert(id, hits);
@@ -221,15 +248,15 @@ impl TestRunner for VitestRunner {
                 tests: tests
                     .into_iter()
                     .map(|t| TestResult {
-                        id: t.id.clone(),
-                        name: t.id,
-                        file: Some(Utf8PathBuf::from(t.file)),
+                        id: self.prefix(&t.id),
+                        name: self.prefix(&t.id),
+                        file: Some(Utf8PathBuf::from(self.prefix(&t.file))),
                         time_ms: t.time_ms,
                         failed: t.state == "fail",
                         failure: t.error,
                     })
                     .collect(),
-                coverage: coverage.map(convert_coverage),
+                coverage: coverage.map(|c| convert_coverage(c, &self.path_prefix)),
                 gross_ms: started.elapsed().as_millis() as u64,
             }),
             other => Ok(DryRunResult::Error(format!("unexpected shim reply: {other:?}"))),
@@ -238,12 +265,18 @@ impl TestRunner for VitestRunner {
 
     async fn mutant_run(&mut self, options: &MutantRunOptions) -> anyhow::Result<MutantRunOutcome> {
         self.ensure_running().await?;
+        let test_filter: Option<Vec<String>> = options.test_filter.as_ref().map(|filter| {
+            filter
+                .iter()
+                .map(|id| id.strip_prefix(&self.path_prefix).unwrap_or(id).to_string())
+                .collect()
+        });
         let reply = self
             .call(
                 json!({
                     "kind": "mutantRun",
                     "activeMutant": options.active_mutant.to_string(),
-                    "testFilter": options.test_filter,
+                    "testFilter": test_filter,
                     "hitLimit": options.hit_limit,
                 }),
                 options.timeout,
@@ -261,7 +294,7 @@ impl TestRunner for VitestRunner {
             ShimReply::MutantRunResult { status, killed_by, tests_ran, failure_message, reason } => {
                 Ok(match status.as_str() {
                     "killed" => MutantRunOutcome::Killed {
-                        killed_by,
+                        killed_by: killed_by.iter().map(|id| self.prefix(id)).collect(),
                         tests_ran,
                         failure: failure_message,
                     },

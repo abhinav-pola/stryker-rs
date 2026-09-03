@@ -105,16 +105,31 @@ function mergeCoverage(a, b) {
   return a;
 }
 
-// Per-run state is BAKED INTO the setup file (rewritten before each run;
-// vite re-transforms on mtime change). This works in every worker runtime —
-// including Cloudflare workerd (pool-workers), which has no process.env or
-// host filesystem — and avoids vitest's provide()/inject() whose re-provide
-// semantics vary across versions.
+// Per-run state is BAKED INTO the setup file. This works in every worker
+// runtime — including Cloudflare workerd (pool-workers), which has no
+// process.env or host filesystem — and avoids vitest's provide()/inject()
+// whose re-provide semantics vary across versions.
+//
+// Per-run state travels two ways, and the setup file prefers the first that
+// is present:
+//   1. provide()/inject() — per-run data, reaches persistent-cache pools
+//      (pool-workers keeps evaluated modules alive across runs inside the
+//      same workerd isolate, so a rewritten setup file is served stale there:
+//      the previous mutant stays active — a false-kill factory; node-side
+//      module-graph invalidation does not reach that cache, and a fresh
+//      setup path per run costs ~2× wall time from worker rebuilds).
+//   2. State BAKED into the setup file text, rewritten before each run —
+//      the fallback for runtimes/versions where inject() is unavailable.
 let setupFilePath = null;
 let setupTemplate = null;
 
 function writeState(state) {
   writeFileSync(setupFilePath, setupTemplate.replace("__STATE_JSON__", JSON.stringify(state)));
+  try {
+    ctx?.provide?.("strykerState", state);
+  } catch {
+    // some versions refuse re-providing a key; the baked fallback covers it
+  }
 }
 
 async function runTests(files, testNamePattern) {
@@ -127,15 +142,26 @@ async function runTests(files, testNamePattern) {
 }
 
 const SETUP_TEMPLATE = String.raw`
-import { beforeEach, afterEach, afterAll } from "vitest";
+import { beforeEach, afterEach, afterAll, inject } from "vitest";
 const NS = "__NAMESPACE__";
 const g = globalThis;
 const ns = (g[NS] ??= {});
-const state = __STATE_JSON__;
+const bakedState = __STATE_JSON__;
+const state = (() => {
+  try {
+    return inject("strykerState") ?? bakedState;
+  } catch {
+    return bakedState;
+  }
+})();
 const mode = state.mode;
 if (mode === "mutant") {
   ns.activeMutant = String(state.activeMutant);
   if (state.hitLimit != null) { ns.hitLimit = state.hitLimit; ns.hitCount = 0; }
+} else {
+  ns.activeMutant = undefined;
+  ns.hitLimit = undefined;
+  ns.hitCount = undefined;
 }
 const ROOT = "__ROOT__";
 function relPath(p) {
@@ -187,8 +213,6 @@ const handlers = {
       "__ROOT__",
       JSON.stringify(rootWithSep).slice(1, -1),
     );
-    writeState({ mode: "dry-run", activeMutant: null, hitLimit: null });
-    const setupFile = setupFilePath;
 
     ctx = await createVitest("test", {
       root: msg.cwd,
@@ -203,9 +227,10 @@ const handlers = {
       onConsoleLog: () => false,
     });
     for (const project of ctx.projects ?? []) {
-      project.config.setupFiles = [setupFile, ...(project.config.setupFiles ?? [])];
+      project.config.setupFiles = [setupFilePath, ...(project.config.setupFiles ?? [])];
       project.config.maxConcurrency = 1;
     }
+    writeState({ mode: "dry-run", activeMutant: null, hitLimit: null });
     send({ id: msg.id, kind: "ready" });
   },
 

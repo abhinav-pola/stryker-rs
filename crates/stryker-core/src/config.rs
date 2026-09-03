@@ -79,6 +79,9 @@ pub struct BunRunnerConfig {
 #[serde(rename_all = "camelCase", default)]
 pub struct VitestRunnerConfig {
     pub config_file: Option<String>,
+    /// Directory (relative to the project root) to run vitest from, for
+    /// monorepo packages; report paths and test ids stay root-relative.
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
