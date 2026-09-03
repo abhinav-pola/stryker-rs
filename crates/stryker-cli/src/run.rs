@@ -108,13 +108,6 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         );
     }
 
-    // ---- runner factory ----
-    let factory = runner_factory(&config, &project.root, &temp_dir)?;
-
-    // ---- sandbox + dry run + mutation testing (restore on every path) ----
-    let mut sandbox = InPlaceSandbox::activate(&project.root, &temp_dir, &instrumented_files)?;
-    let setup_ms = started.elapsed().as_millis() as u64;
-
     // Incremental: load the previous report (it IS a full report).
     let incremental_path = config.effective_incremental_file(&project.root);
     let old_report: Option<stryker_reporters::schema::MutationTestResult> =
@@ -140,6 +133,45 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
             .map(stryker_incremental::hash_content),
         _ => None,
     };
+
+    // ---- full-reuse fast path ----
+    // When every hashed input of the cached run (test files with their
+    // dependencies, config inputs, command fingerprint) is bit-identical AND
+    // the store covers every current mutant, the dry run and mutant
+    // executions would reproduce the cached verdicts by the same reasoning
+    // that justifies per-mutant reuse — so skip the sandbox and every test
+    // process entirely. Any mismatch falls through to the normal pipeline.
+    let full_reuse = old_report.as_ref().and_then(|old| {
+        try_full_reuse(&config, &project.root, &mutants, &file_sources, old, command_fingerprint.as_deref())
+    });
+    if let Some(reuse) = full_reuse {
+        tracing::info!(
+            "incremental: full reuse of {} mutant verdicts — skipping dry run and mutant execution",
+            mutants.len()
+        );
+        return finish_run(FinishInput {
+            config: &config,
+            project_root: &project.root,
+            incremental_path: &incremental_path,
+            file_sources: &file_sources,
+            mutants: &mutants,
+            results: reuse.results,
+            test_files: reuse.test_files,
+            test_file_hashes: reuse.test_file_hashes,
+            command_fingerprint: command_fingerprint.as_deref(),
+            setup_ms: started.elapsed().as_millis() as u64,
+            initial_run_ms: 0,
+            mutation_ms: 0,
+            temp_dir: &temp_dir,
+        });
+    }
+
+    // ---- runner factory ----
+    let factory = runner_factory(&config, &project.root, &temp_dir)?;
+
+    // ---- sandbox + dry run + mutation testing (restore on every path) ----
+    let mut sandbox = InPlaceSandbox::activate(&project.root, &temp_dir, &instrumented_files)?;
+    let setup_ms = started.elapsed().as_millis() as u64;
 
     let execution = tokio::select! {
         result = execute(ExecuteInput {
@@ -169,7 +201,57 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         return Ok(0);
     }
 
-    // ---- report ----
+    finish_run(FinishInput {
+        config: &config,
+        project_root: &project.root,
+        incremental_path: &incremental_path,
+        file_sources: &file_sources,
+        mutants: &mutants,
+        results,
+        test_files,
+        test_file_hashes,
+        command_fingerprint: command_fingerprint.as_deref(),
+        setup_ms,
+        initial_run_ms,
+        mutation_ms,
+        temp_dir: &temp_dir,
+    })
+}
+
+struct FinishInput<'a> {
+    config: &'a StrykerConfig,
+    project_root: &'a Utf8Path,
+    incremental_path: &'a Utf8Path,
+    file_sources: &'a BTreeMap<Utf8PathBuf, String>,
+    mutants: &'a [Mutant],
+    results: BTreeMap<u32, MutantResult>,
+    test_files: Option<BTreeMap<String, stryker_reporters::schema::TestFile>>,
+    test_file_hashes: BTreeMap<String, String>,
+    command_fingerprint: Option<&'a str>,
+    setup_ms: u64,
+    initial_run_ms: u64,
+    mutation_ms: u64,
+    temp_dir: &'a Utf8Path,
+}
+
+/// Shared tail of both pipelines: build + write reports, persist the
+/// incremental store, clean up, and derive the exit code.
+fn finish_run(input: FinishInput<'_>) -> anyhow::Result<i32> {
+    let FinishInput {
+        config,
+        project_root,
+        incremental_path,
+        file_sources,
+        mutants,
+        results,
+        test_files,
+        test_file_hashes,
+        command_fingerprint,
+        setup_ms,
+        initial_run_ms,
+        mutation_ms,
+        temp_dir,
+    } = input;
     let stryker_rs_config = serde_json::json!({
         "strykerRs": {
             "testCommandFingerprint": command_fingerprint,
@@ -177,12 +259,12 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         }
     });
     let report = build_report(&ReportInput {
-        file_sources: &file_sources,
-        mutants: &mutants,
+        file_sources,
+        mutants,
         results: &results,
         thresholds_high: config.thresholds.high,
         thresholds_low: config.thresholds.low,
-        project_root: Some(project.root.to_string()),
+        project_root: Some(project_root.to_string()),
         config: Some(stryker_rs_config),
         test_files,
         performance: Some(stryker_reporters::schema::Performance {
@@ -196,7 +278,7 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         if let Some(parent) = incremental_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&incremental_path, serde_json::to_string(&report)?)?;
+        std::fs::write(incremental_path, serde_json::to_string(&report)?)?;
         tracing::info!("incremental report written to {incremental_path}");
     }
 
@@ -210,7 +292,7 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
                     .clone()
                     .unwrap_or_else(|| Utf8PathBuf::from("reports/mutation/mutation.json"));
                 let path =
-                    if path.is_absolute() { path } else { project.root.join(path) };
+                    if path.is_absolute() { path } else { project_root.join(path) };
                 stryker_reporters::write_json_report(&report, &path)?;
                 tracing::info!("JSON report written to {path}");
             }
@@ -221,7 +303,7 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
                     .clone()
                     .unwrap_or_else(|| Utf8PathBuf::from("reports/mutation/mutation.html"));
                 let path =
-                    if path.is_absolute() { path } else { project.root.join(path) };
+                    if path.is_absolute() { path } else { project_root.join(path) };
                 stryker_reporters::html::write(&report, &path)?;
                 tracing::info!("HTML report written to {path}");
             }
@@ -233,7 +315,7 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
     // ---- clean temp dir ----
     match config.clean_temp_dir {
         CleanTempDir::OnSuccess | CleanTempDir::Always => {
-            let _ = std::fs::remove_dir_all(&temp_dir);
+            let _ = std::fs::remove_dir_all(temp_dir);
         }
         CleanTempDir::Never => {}
     }
@@ -249,6 +331,134 @@ pub async fn run(flags: RunFlags) -> anyhow::Result<i32> {
         }
     }
     Ok(0)
+}
+
+struct FullReuse {
+    results: BTreeMap<u32, MutantResult>,
+    test_files: Option<BTreeMap<String, stryker_reporters::schema::TestFile>>,
+    test_file_hashes: BTreeMap<String, String>,
+}
+
+/// Try to satisfy the whole run from the incremental store: requires every
+/// hashed input to match the cached run bit-for-bit AND a reusable verdict
+/// for every current mutant. Returns None on ANY mismatch.
+fn try_full_reuse(
+    config: &StrykerConfig,
+    project_root: &Utf8Path,
+    mutants: &[Mutant],
+    file_sources: &BTreeMap<Utf8PathBuf, String>,
+    old: &stryker_reporters::schema::MutationTestResult,
+    command_fingerprint: Option<&str>,
+) -> Option<FullReuse> {
+    let old_hashes: BTreeMap<String, String> = match old
+        .config
+        .as_ref()
+        .and_then(|c| c.pointer("/strykerRs/testFileHashes"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+    {
+        Some(hashes) => hashes,
+        None => {
+            tracing::debug!("full reuse declined: no recorded test file hashes");
+            return None;
+        }
+    };
+
+    // Command tier reuses on fingerprint equality; per-test tiers need the
+    // recorded hash map to be non-empty (otherwise there is nothing proving
+    // test behavior is unchanged).
+    let fingerprint_matches = command_fingerprint.map(|new_fp| {
+        old.config
+            .as_ref()
+            .and_then(|c| c.pointer("/strykerRs/testCommandFingerprint"))
+            .and_then(|v| v.as_str())
+            == Some(new_fp)
+    });
+    if fingerprint_matches == Some(false) {
+        tracing::debug!("full reuse declined: test command changed");
+        return None;
+    }
+    if fingerprint_matches.is_none() && old_hashes.iter().all(|(k, _)| k.starts_with("config:")) {
+        tracing::debug!("full reuse declined: no per-test hashes recorded");
+        return None;
+    }
+
+    // Recompute every recorded input hash from the CURRENT tree.
+    let mut new_hashes = config_input_hashes(config, project_root);
+    for key in old_hashes.keys() {
+        if key.starts_with("config:") {
+            continue;
+        }
+        let Some(hash) = dependency_aware_test_hash(project_root, Utf8Path::new(key), file_sources)
+        else {
+            tracing::debug!("full reuse declined: test file {key} unreadable");
+            return None;
+        };
+        new_hashes.insert(key.clone(), hash);
+    }
+    if new_hashes != old_hashes {
+        for (key, old_hash) in &old_hashes {
+            match new_hashes.get(key) {
+                Some(new_hash) if new_hash == old_hash => {}
+                Some(_) => tracing::debug!("full reuse declined: {key} changed"),
+                None => tracing::debug!("full reuse declined: {key} no longer hashed"),
+            }
+        }
+        for key in new_hashes.keys() {
+            if !old_hashes.contains_key(key) {
+                tracing::debug!("full reuse declined: new input {key}");
+            }
+        }
+        return None;
+    }
+
+    // Identical test files imply the identical test id set.
+    let new_test_ids: std::collections::HashSet<String> = old
+        .test_files
+        .as_ref()
+        .map(|files| {
+            files.values().flat_map(|f| f.tests.iter().map(|t| t.id.clone())).collect()
+        })
+        .unwrap_or_default();
+
+    let reused = stryker_incremental::reusable_results(&stryker_incremental::IncrementalInput {
+        old_report: old,
+        mutants,
+        sources: file_sources,
+        new_test_ids: &new_test_ids,
+        old_test_hashes: &old_hashes,
+        new_test_hashes: &new_hashes,
+        command_fingerprint_matches: fingerprint_matches,
+    });
+
+    // Every mutant must be covered: reused, or Ignored (recomputed free).
+    let mut results = reused;
+    for mutant in mutants {
+        if results.contains_key(&mutant.id.0) {
+            continue;
+        }
+        let Some(reason) = &mutant.ignored else {
+            tracing::debug!(
+                "full reuse declined: mutant {} in {} has no reusable verdict",
+                mutant.id,
+                mutant.file
+            );
+            return None; // a mutant needs running: fall back to the pipeline
+        };
+        results.insert(
+            mutant.id.0,
+            MutantResult {
+                status: MutantStatus::Ignored,
+                killed_by: vec![],
+                covered_by: vec![],
+                tests_ran: 0,
+                status_reason: Some(reason.clone()),
+                duration: None,
+                is_static: None,
+            },
+        );
+    }
+
+    Some(FullReuse { results, test_files: old.test_files.clone(), test_file_hashes: new_hashes })
 }
 
 struct Execution {
@@ -395,7 +605,7 @@ async fn execute(input: ExecuteInput<'_>) -> anyhow::Result<Execution> {
     for test in &tests {
         let Some(file) = &test.file else { continue };
         if !test_file_hashes.contains_key(file.as_str()) {
-            if let Some(hash) = dependency_aware_test_hash(project_root, file) {
+            if let Some(hash) = dependency_aware_test_hash(project_root, file, file_sources) {
                 test_file_hashes.insert(file.to_string(), hash);
             }
         }
@@ -648,7 +858,15 @@ async fn execute(input: ExecuteInput<'_>) -> anyhow::Result<Execution> {
 /// imports (sorted by path), so a changed colocated helper or fixture
 /// invalidates cached verdicts. One hop covers the dominant class; package
 /// imports are versioned by the lockfile, hashed via `config_input_hashes`.
-fn dependency_aware_test_hash(project_root: &Utf8Path, file: &Utf8Path) -> Option<String> {
+fn dependency_aware_test_hash(
+    project_root: &Utf8Path,
+    file: &Utf8Path,
+    // PRISTINE sources of mutate targets: while the sandbox is active those
+    // files hold instrumented bytes on disk, which would make the hash
+    // unstable (it would embed mutant ids) and diverge from hashes computed
+    // outside the sandbox.
+    pristine_sources: &BTreeMap<Utf8PathBuf, String>,
+) -> Option<String> {
     let content = std::fs::read_to_string(project_root.join(file)).ok()?;
     let mut buffer = content.clone();
     let mut deps: Vec<Utf8PathBuf> = stryker_instrumenter::imports::direct_relative_imports(
@@ -662,7 +880,11 @@ fn dependency_aware_test_hash(project_root: &Utf8Path, file: &Utf8Path) -> Optio
     deps.sort();
     deps.dedup();
     for dep in deps {
-        if let Ok(dep_content) = std::fs::read_to_string(project_root.join(&dep)) {
+        let dep_content = match pristine_sources.get(&dep) {
+            Some(pristine) => Some(pristine.clone()),
+            None => std::fs::read_to_string(project_root.join(&dep)).ok(),
+        };
+        if let Some(dep_content) = dep_content {
             buffer.push('\0');
             buffer.push_str(dep.as_str());
             buffer.push('\0');

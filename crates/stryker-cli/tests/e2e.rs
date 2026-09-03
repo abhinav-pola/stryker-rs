@@ -93,9 +93,21 @@ fn incremental_reuse_invalidates_on_imported_helper_change() {
     run(); // cold: writes the incremental store
     let warm = run();
     assert!(
-        warm.contains("reusing 25 of 25"),
-        "warm run should reuse everything: {warm}"
+        warm.contains("full reuse of 25"),
+        "warm run should take the full-reuse fast path: {warm}"
     );
+    // The fast-path report must be as complete as a fresh one.
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("reports/mutation/bun.json")).unwrap(),
+    )
+    .unwrap();
+    let has_killed_by = report["files"]
+        .as_object()
+        .unwrap()
+        .values()
+        .flat_map(|f| f["mutants"].as_array().unwrap())
+        .any(|m| m["killedBy"].as_array().is_some_and(|k| !k.is_empty()));
+    assert!(has_killed_by, "fast-path report lost killedBy attribution");
 
     // A comment-only change to a module the TESTS import (not the test file
     // itself) must invalidate reuse: the cached verdicts were computed
@@ -103,6 +115,10 @@ fn incremental_reuse_invalidates_on_imported_helper_change() {
     std::fs::write(&helper, format!("{original}\n// helper touched\n")).unwrap();
     let after_helper_change = run();
     std::fs::write(&helper, original).unwrap();
+    assert!(
+        !after_helper_change.contains("full reuse"),
+        "helper change must not take the fast path: {after_helper_change}"
+    );
     assert!(
         after_helper_change.contains("reusing 0 of"),
         "helper change must bust reuse: {after_helper_change}"
