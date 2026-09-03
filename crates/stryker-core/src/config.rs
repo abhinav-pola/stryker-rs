@@ -137,6 +137,9 @@ pub struct StrykerConfig {
     pub incremental_file: Option<Utf8PathBuf>,
     pub force: bool,
     pub mutator: MutatorConfig,
+    /// stryker-js parity: mutant runs stop at the first failing test unless
+    /// disabled (dry runs always run everything).
+    pub disable_bail: bool,
     pub disable_type_checks: bool,
     pub dry_run_only: bool,
     pub allow_empty: bool,
@@ -171,6 +174,7 @@ impl Default for StrykerConfig {
             incremental_file: None,
             force: false,
             mutator: MutatorConfig::default(),
+            disable_bail: false,
             disable_type_checks: true,
             dry_run_only: false,
             allow_empty: false,
@@ -257,11 +261,11 @@ fn parse_config_value(value: serde_json::Value, path: &Utf8Path) -> anyhow::Resu
         "dryRunTimeoutMinutes", "ignorePatterns", "inPlace", "tempDirName",
         "cleanTempDir", "reporters", "jsonReporter", "htmlReporter", "thresholds",
         "incremental", "incrementalFile", "force", "mutator", "disableTypeChecks",
-        "dryRunOnly", "allowEmpty", "logLevel",
+        "disableBail", "dryRunOnly", "allowEmpty", "logLevel",
         // accepted-and-ignored stryker-js keys, so real-world configs load cleanly
         "$schema", "packageManager", "plugins", "appendPlugins", "checkers",
         "warnings", "allowConsoleColors", "symlinkNodeModules", "buildCommand",
-        "maxTestRunnerReuse", "disableBail", "testRunnerNodeArgs", "checkerNodeArgs",
+        "maxTestRunnerReuse", "testRunnerNodeArgs", "checkerNodeArgs",
         "tsconfigFile", "ignoreStatic", "ignorers", "testFiles", "dashboard",
         "clearTextReporter", "eventReporter", "fileLogLevel", "inspect",
     ]

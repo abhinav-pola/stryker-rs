@@ -57,6 +57,10 @@ pub struct BunRunner {
     test_files: Vec<String>,
     /// Extra env for every invocation.
     extra_env: Vec<(String, String)>,
+    /// Pass `--bail` on mutant runs (stryker-js default; killed mutants stop
+    /// at the first failing test). Dry runs never bail: coverage and timing
+    /// need every test.
+    bail: bool,
     /// Unique per instance so concurrent workers don't collide on artifacts.
     worker_id: u64,
     run_counter: u64,
@@ -71,6 +75,7 @@ impl BunRunner {
         extra_args: Vec<String>,
         test_files: Vec<String>,
         extra_env: Vec<(String, String)>,
+        bail: bool,
     ) -> Self {
         static NEXT_WORKER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let worker_id = NEXT_WORKER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -87,6 +92,7 @@ impl BunRunner {
             extra_args,
             test_files,
             extra_env,
+            bail,
             worker_id,
             run_counter: 0,
             preload_path,
@@ -224,6 +230,9 @@ impl TestRunner for BunRunner {
         cmd.env(ACTIVE_MUTANT_ENV, options.active_mutant.to_string());
         if let Some(limit) = options.hit_limit {
             cmd.env(HIT_LIMIT_ENV, limit.to_string());
+        }
+        if self.bail {
+            cmd.arg("--bail");
         }
 
         match &options.test_filter {

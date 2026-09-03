@@ -21,6 +21,11 @@ function stryNS_9fa48() {
 stryNS_9fa48();
 function stryCov_9fa48() {
   var ns = stryNS_9fa48();
+  if (ns.activeMutant !== undefined) {
+    var noop = function () {};
+    stryCov_9fa48 = noop;
+    return;
+  }
   var cov = ns.mutantCoverage || (ns.mutantCoverage = { static: {}, perTest: {} });
   function cover() {
     var c = cov.static;

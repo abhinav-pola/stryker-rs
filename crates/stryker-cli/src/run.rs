@@ -498,6 +498,7 @@ fn runner_factory(
         let test_files = config.bun_runner.test_files.clone();
         let env: Vec<(String, String)> =
             config.bun_runner.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let bail = !config.disable_bail;
         move || {
             stryker_runners::bun::BunRunner::new(
                 bun_cwd.clone(),
@@ -506,6 +507,7 @@ fn runner_factory(
                 args.clone(),
                 test_files.clone(),
                 env.clone(),
+                bail,
             )
         }
     };
@@ -707,10 +709,14 @@ async fn execute(input: ExecuteInput<'_>) -> anyhow::Result<Execution> {
             run @ MutantTestPlan::Run { .. } => run_plans.push(run),
         }
     }
-    // Coverage-filtered (cheap) mutants first, full-suite/static last.
+    // Longest-expected-first (LPT) minimizes the makespan straggler tail:
+    // full-suite/static runs are the largest jobs, so they start first
+    // instead of serializing at the end of the schedule.
     run_plans.sort_by_key(|p| match p {
-        MutantTestPlan::Run { test_filter: Some(filter), .. } => (0usize, filter.len()),
-        MutantTestPlan::Run { test_filter: None, .. } => (1, usize::MAX),
+        MutantTestPlan::Run { test_filter: None, .. } => (0usize, 0u128),
+        MutantTestPlan::Run { test_filter: Some(_), timeout, .. } => {
+            (1, u128::MAX - timeout.as_millis())
+        }
         MutantTestPlan::EarlyResult { .. } => unreachable!(),
     });
 
