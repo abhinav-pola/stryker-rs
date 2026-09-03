@@ -384,16 +384,19 @@ async fn execute(input: ExecuteInput<'_>) -> anyhow::Result<Execution> {
     dry_runner.dispose().await?;
     tracing::info!("dry run complete: {} tests in {gross_ms}ms", tests.len());
 
-    // Test inventory: hashes for incremental, testFiles for the report.
-    let mut test_file_hashes: BTreeMap<String, String> = BTreeMap::new();
+    // Test inventory: hashes for incremental, testFiles for the report. A
+    // test file is hashed together with its direct relative imports, so a
+    // changed helper/fixture invalidates verdicts even when the test file's
+    // own bytes did not change; bun config and preload files participate as
+    // pseudo-entries for the same reason.
+    let mut test_file_hashes: BTreeMap<String, String> = config_input_hashes(config, project_root);
     let mut test_files_section: BTreeMap<String, stryker_reporters::schema::TestFile> =
         BTreeMap::new();
     for test in &tests {
         let Some(file) = &test.file else { continue };
         if !test_file_hashes.contains_key(file.as_str()) {
-            if let Ok(content) = std::fs::read_to_string(project_root.join(file)) {
-                test_file_hashes
-                    .insert(file.to_string(), stryker_incremental::hash_content(&content));
+            if let Some(hash) = dependency_aware_test_hash(project_root, file) {
+                test_file_hashes.insert(file.to_string(), hash);
             }
         }
         test_files_section
@@ -639,6 +642,79 @@ async fn execute(input: ExecuteInput<'_>) -> anyhow::Result<Execution> {
         test_files,
         test_file_hashes,
     })
+}
+
+/// Hash of a test file's content PLUS the contents of its direct relative
+/// imports (sorted by path), so a changed colocated helper or fixture
+/// invalidates cached verdicts. One hop covers the dominant class; package
+/// imports are versioned by the lockfile, hashed via `config_input_hashes`.
+fn dependency_aware_test_hash(project_root: &Utf8Path, file: &Utf8Path) -> Option<String> {
+    let content = std::fs::read_to_string(project_root.join(file)).ok()?;
+    let mut buffer = content.clone();
+    let mut deps: Vec<Utf8PathBuf> = stryker_instrumenter::imports::direct_relative_imports(
+        file, &content,
+    )
+    .iter()
+    .filter_map(|spec| {
+        stryker_instrumenter::imports::resolve_relative_import(project_root, file, spec)
+    })
+    .collect();
+    deps.sort();
+    deps.dedup();
+    for dep in deps {
+        if let Ok(dep_content) = std::fs::read_to_string(project_root.join(&dep)) {
+            buffer.push('\0');
+            buffer.push_str(dep.as_str());
+            buffer.push('\0');
+            buffer.push_str(&dep_content);
+        }
+    }
+    Some(stryker_incremental::hash_content(&buffer))
+}
+
+/// Hashes of run-configuration inputs that change test behavior without
+/// changing any test file: lockfile, bunfig preload configs, package
+/// manifests, and files passed via `--preload`. Keyed as `config:<path>` so
+/// they participate in the incremental tests-unchanged comparison.
+fn config_input_hashes(
+    config: &StrykerConfig,
+    project_root: &Utf8Path,
+) -> BTreeMap<String, String> {
+    let mut candidates: Vec<Utf8PathBuf> = vec![
+        Utf8PathBuf::from("bunfig.toml"),
+        Utf8PathBuf::from("bun.lock"),
+        Utf8PathBuf::from("bun.lockb"),
+        Utf8PathBuf::from("package.json"),
+    ];
+    if matches!(config.test_runner, TestRunnerKind::Bun | TestRunnerKind::Composite) {
+        let bun_cwd = config.bun_runner.cwd.as_deref().map(Utf8PathBuf::from);
+        if let Some(cwd) = &bun_cwd {
+            candidates.push(cwd.join("bunfig.toml"));
+            candidates.push(cwd.join("package.json"));
+        }
+        let mut args = config.bun_runner.args.iter();
+        while let Some(arg) = args.next() {
+            if arg == "--preload" {
+                if let Some(preload) = args.next() {
+                    let rel = preload.trim_start_matches("./");
+                    candidates.push(match &bun_cwd {
+                        Some(cwd) => cwd.join(rel),
+                        None => Utf8PathBuf::from(rel),
+                    });
+                }
+            }
+        }
+    }
+    let mut hashes = BTreeMap::new();
+    for rel in candidates {
+        if let Ok(content) = std::fs::read_to_string(project_root.join(&rel)) {
+            hashes.insert(
+                format!("config:{rel}"),
+                stryker_incremental::hash_content(&content),
+            );
+        }
+    }
+    hashes
 }
 
 /// Minimal MPMC work queue (avoids an extra dependency).

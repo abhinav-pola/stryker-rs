@@ -2,6 +2,7 @@ pub mod build;
 pub mod collect;
 pub mod directives;
 pub mod header;
+pub mod imports;
 pub mod line_index;
 
 pub use header::HEADER_MARKER;

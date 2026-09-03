@@ -2,6 +2,10 @@
 //! Skips (with a message) when `bun` is not installed.
 
 use std::process::Command;
+use std::sync::Mutex;
+
+/// Both tests mutate the same fixture in place; serialize them.
+static FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
 fn bun_available() -> bool {
     Command::new("bun").arg("--version").output().is_ok_and(|o| o.status.success())
@@ -17,6 +21,7 @@ fn bun_fixture_end_to_end() {
         eprintln!("skipping: bun not installed");
         return;
     }
+    let _guard = FIXTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = fixture_dir("bun-project");
     let report_path = dir.join("reports/mutation/bun.json");
     let _ = std::fs::remove_file(&report_path);
@@ -58,5 +63,48 @@ fn bun_fixture_end_to_end() {
             .as_array()
             .is_some_and(|k| !k.is_empty() && k[0].as_str().unwrap().contains(" > "))),
         "no mutant has killedBy test ids"
+    );
+}
+
+#[test]
+fn incremental_reuse_invalidates_on_imported_helper_change() {
+    if !bun_available() {
+        eprintln!("skipping: bun not installed");
+        return;
+    }
+    let _guard = FIXTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = fixture_dir("bun-project");
+    let helper = dir.join("app/(group)/route.ts");
+    let original = std::fs::read_to_string(&helper).unwrap();
+    let _ = std::fs::remove_dir_all(dir.join("reports"));
+
+    let run = || {
+        let output = assert_cmd::Command::cargo_bin("stryker")
+            .unwrap()
+            .current_dir(&dir)
+            .args(["run", "--config", "stryker.bun.config.json", "--force-dirty"])
+            .timeout(std::time::Duration::from_secs(300))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8_lossy(&output.stderr).to_string()
+    };
+
+    run(); // cold: writes the incremental store
+    let warm = run();
+    assert!(
+        warm.contains("reusing 25 of 25"),
+        "warm run should reuse everything: {warm}"
+    );
+
+    // A comment-only change to a module the TESTS import (not the test file
+    // itself) must invalidate reuse: the cached verdicts were computed
+    // against different test behavior inputs.
+    std::fs::write(&helper, format!("{original}\n// helper touched\n")).unwrap();
+    let after_helper_change = run();
+    std::fs::write(&helper, original).unwrap();
+    assert!(
+        after_helper_change.contains("reusing 0 of"),
+        "helper change must bust reuse: {after_helper_change}"
     );
 }
