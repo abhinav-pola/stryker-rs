@@ -335,14 +335,18 @@ fn covering_files(filter: &[TestId], path_prefix: &str) -> Vec<String> {
     files
 }
 
-/// `-t` regex matching any of the covering tests' LEAF names. Leaf names can
-/// over-match same-named tests in other describes — safe (extra tests run),
-/// never under-matches. None = filter by file only.
+/// `-t` regex of anchored FULL test names (describes + leaf joined with
+/// spaces, which is what bun matches against). Anchoring avoids running
+/// same-named tests from other suites; a name that itself contains " > "
+/// falls back to its leaf segment (unanchored), which over-matches — safe.
+/// None = filter by file only.
 fn name_pattern(filter: &[TestId]) -> Option<String> {
     let mut names: Vec<String> = filter
         .iter()
-        .map(|id| id.rsplit(" > ").next().unwrap_or(id))
-        .map(escape_regex)
+        .map(|id| match id.split_once(" > ") {
+            Some((_file, rest)) => format!("^{}$", escape_regex(&rest.replace(" > ", " "))),
+            None => escape_regex(id),
+        })
         .collect();
     names.sort();
     names.dedup();
@@ -388,8 +392,8 @@ mod tests {
     }
 
     #[test]
-    fn name_pattern_escapes() {
-        let filter = vec!["a.test.ts > handles (edge) case".to_string()];
-        assert_eq!(name_pattern(&filter).unwrap(), "handles \\(edge\\) case");
+    fn name_pattern_escapes_and_anchors_full_names() {
+        let filter = vec!["a.test.ts > suite > handles (edge) case".to_string()];
+        assert_eq!(name_pattern(&filter).unwrap(), "^suite handles \\(edge\\) case$");
     }
 }
